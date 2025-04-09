@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Apr 08, 2025 at 06:40 AM
+-- Generation Time: Apr 09, 2025 at 03:31 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -31,8 +31,17 @@ CREATE TABLE `files` (
   `id` int(11) NOT NULL,
   `file_name` varchar(255) NOT NULL,
   `sender_id` int(11) NOT NULL,
+  `receiver_id` int(11) DEFAULT NULL,
+  `is_group` tinyint(1) DEFAULT 0,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `files`
+--
+
+INSERT INTO `files` (`id`, `file_name`, `sender_id`, `receiver_id`, `is_group`, `created_at`) VALUES
+(2, 'note.txt', 1, 3, 0, '2025-04-08 08:14:47');
 
 -- --------------------------------------------------------
 
@@ -214,7 +223,9 @@ INSERT INTO `messages` (`id`, `sender_id`, `receiver_id`, `content`, `is_read`, 
 (52, 3, 1, 'aloo', 0, '2025-04-06 20:21:44'),
 (53, 3, 1, 'test', 0, '2025-04-06 21:44:22'),
 (54, 3, 1, 'alo', 0, '2025-04-08 04:12:50'),
-(55, 3, 1, 'hi', 0, '2025-04-08 04:32:12');
+(55, 3, 1, 'hi', 0, '2025-04-08 04:32:12'),
+(56, 1, 3, '[FILE] note.txt', 0, '2025-04-08 08:14:47'),
+(57, 3, 1, 'ok chưa', 0, '2025-04-08 09:29:52');
 
 -- --------------------------------------------------------
 
@@ -250,7 +261,8 @@ INSERT INTO `users` (`id`, `username`, `email`, `password_hash`, `avatar_url`, `
 --
 ALTER TABLE `files`
   ADD PRIMARY KEY (`id`),
-  ADD KEY `sender_id` (`sender_id`);
+  ADD KEY `sender_id` (`sender_id`),
+  ADD KEY `files_receiver_fk` (`receiver_id`);
 
 --
 -- Indexes for table `friends`
@@ -305,7 +317,7 @@ ALTER TABLE `users`
 -- AUTO_INCREMENT for table `files`
 --
 ALTER TABLE `files`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `group_chats`
@@ -323,7 +335,7 @@ ALTER TABLE `group_messages`
 -- AUTO_INCREMENT for table `messages`
 --
 ALTER TABLE `messages`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=56;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=58;
 
 --
 -- AUTO_INCREMENT for table `users`
@@ -339,7 +351,8 @@ ALTER TABLE `users`
 -- Constraints for table `files`
 --
 ALTER TABLE `files`
-  ADD CONSTRAINT `files_ibfk_1` FOREIGN KEY (`sender_id`) REFERENCES `users` (`id`);
+  ADD CONSTRAINT `files_ibfk_1` FOREIGN KEY (`sender_id`) REFERENCES `users` (`id`),
+  ADD CONSTRAINT `files_receiver_fk` FOREIGN KEY (`receiver_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `friends`
