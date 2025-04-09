@@ -59,6 +59,9 @@ public class AdvancedChatApp extends JFrame {
         socket = new Socket("localhost", 12345);
         out = new PrintWriter(socket.getOutputStream(), true);
         in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+
+        // Send user ID as the first message after connecting
+        out.println(String.valueOf(UserSession.getUserId()));
     }
 
     private void loadFriendsAndGroups() {
@@ -193,7 +196,63 @@ public class AdvancedChatApp extends JFrame {
     chatArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
     chatArea.setOpaque(false);
     chatArea.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        chatArea.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                try {
+                    int lineIndex = chatArea.getLineOfOffset(chatArea.viewToModel2D(e.getPoint()));
+                    int startOffset = chatArea.getLineStartOffset(lineIndex);
+                    int endOffset = chatArea.getLineEndOffset(lineIndex);
+                    String clickedLine = chatArea.getText(startOffset, endOffset - startOffset);
 
+                    if (clickedLine.contains("[Click to download]") || clickedLine.contains("sent a file:")) {
+                        // Extract the file name
+                        String fileName = null;
+
+                        // Try to find the file name pattern: "sent a file: filename.ext"
+                        int fileMarkerIndex = clickedLine.indexOf("sent a file:");
+                        if (fileMarkerIndex != -1) {
+                            // Start after "sent a file: "
+                            int filenameStart = fileMarkerIndex + "sent a file:".length() + 1;
+
+                            // Find where the filename ends (before " [Click to download]")
+                            int filenameEnd = clickedLine.indexOf(" [Click", filenameStart);
+                            if (filenameEnd == -1) { // If not found, try with "("
+                                filenameEnd = clickedLine.indexOf(" (", filenameStart);
+                            }
+
+                            if (filenameEnd != -1) {
+                                fileName = clickedLine.substring(filenameStart, filenameEnd).trim();
+                            } else {
+                                // Just take everything after "sent a file: "
+                                fileName = clickedLine.substring(filenameStart).trim();
+                            }
+                        } else if (clickedLine.contains("You sent a file:")) {
+                            // Pattern: "You sent a file: filename.ext"
+                            int filenameStart = clickedLine.indexOf("You sent a file:") + "You sent a file:".length() + 1;
+                            int filenameEnd = clickedLine.indexOf(" (", filenameStart);
+
+                            if (filenameEnd != -1) {
+                                fileName = clickedLine.substring(filenameStart, filenameEnd).trim();
+                            } else {
+                                fileName = clickedLine.substring(filenameStart).trim();
+                            }
+                        }
+
+                        if (fileName != null && !fileName.isEmpty()) {
+                            downloadFileWithLocationSelection(fileName);
+                        } else {
+                            JOptionPane.showMessageDialog(AdvancedChatApp.this,
+                                    "Could not extract file name from: " + clickedLine);
+                        }
+                    }
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    JOptionPane.showMessageDialog(AdvancedChatApp.this,
+                            "Error processing click: " + ex.getMessage());
+                }
+            }
+        });
     JScrollPane chatScrollPane = new JScrollPane(chatArea);
     chatScrollPane.setOpaque(false);
     chatScrollPane.getViewport().setOpaque(false);
@@ -230,7 +289,7 @@ public class AdvancedChatApp extends JFrame {
     add(splitPane, BorderLayout.CENTER);
     setVisible(true);
 }
-    
+    private static final String FILE_STORAGE_PATH = "C:/Users/User/Desktop/Folder/ChatSystem_experiment/src/main/java/ChatFiles";
     private void createGroup() {
     String groupName = JOptionPane.showInputDialog(this, "Enter group name:");
     if (groupName != null && !groupName.trim().isEmpty()) {
@@ -255,6 +314,120 @@ public class AdvancedChatApp extends JFrame {
         }
     }
 }
+
+    private String listFilesInDirectory() {
+        File dir = new File(FILE_STORAGE_PATH);
+        if (!dir.exists() || !dir.isDirectory()) {
+            return "Storage directory does not exist or is not a directory";
+        }
+
+        File[] files = dir.listFiles();
+        if (files == null || files.length == 0) {
+            return "No files in directory";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (File file : files) {
+            sb.append(file.getName()).append(" (").append(file.length()).append(" bytes)\n");
+        }
+
+        return sb.toString();
+    }
+
+    private void checkAndDownloadFile(String fileName) {
+        System.out.println("Attempting to download file: " + fileName);
+
+        // First, trim any whitespace that might interfere with the search
+        fileName = fileName.trim();
+
+        // Show a debug message with the exact file name we're searching for
+        System.out.println("Searching for file with exact name: '" + fileName + "'");
+
+        try (Connection conn = DriverManager.getConnection("jdbc:mysql://localhost:3306/chat_system", "root", "")) {
+            // Use a more flexible query that will find partial matches if needed
+            String query = "SELECT * FROM files WHERE file_name LIKE ? ORDER BY created_at DESC LIMIT 1";
+            try (PreparedStatement stmt = conn.prepareStatement(query)) {
+                // Use LIKE with % for more flexible matching
+                stmt.setString(1, "%" + fileName + "%");
+
+                ResultSet rs = stmt.executeQuery();
+                if (rs.next()) {
+                    int fileId = rs.getInt("id");
+                    String actualFileName = rs.getString("file_name");
+                    System.out.println("Found file in database: ID=" + fileId + ", Name=" + actualFileName);
+
+                    // Try to open the file with the exact name from the database
+                    File file = new File(FILE_STORAGE_PATH, actualFileName);
+                    if (file.exists()) {
+                        try {
+                            System.out.println("Opening file: " + file.getAbsolutePath());
+                            Desktop.getDesktop().open(file);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                            JOptionPane.showMessageDialog(this,
+                                    "Error opening file: " + e.getMessage() +
+                                            "\nPath: " + file.getAbsolutePath());
+                        }
+                    } else {
+                        // Try with just the file name without path
+                        String simpleFileName = actualFileName;
+                        if (simpleFileName.contains("\\")) {
+                            simpleFileName = simpleFileName.substring(simpleFileName.lastIndexOf("\\") + 1);
+                        } else if (simpleFileName.contains("/")) {
+                            simpleFileName = simpleFileName.substring(simpleFileName.lastIndexOf("/") + 1);
+                        }
+
+                        File simpleFile = new File(FILE_STORAGE_PATH, simpleFileName);
+
+                        if (simpleFile.exists()) {
+                            System.out.println("Opening simplified file: " + simpleFile.getAbsolutePath());
+                            Desktop.getDesktop().open(simpleFile);
+                        } else {
+                            // Show detailed error with file paths for debugging
+                            String errorMessage = "File not found on disk. Details:\n" +
+                                    "Database filename: " + actualFileName + "\n" +
+                                    "Searched path 1: " + file.getAbsolutePath() + "\n" +
+                                    "Searched path 2: " + simpleFile.getAbsolutePath() + "\n" +
+                                    "Storage directory exists: " + new File(FILE_STORAGE_PATH).exists() + "\n" +
+                                    "Files in storage directory: " + listFilesInDirectory();
+
+                            System.err.println(errorMessage);
+                            JOptionPane.showMessageDialog(this, errorMessage);
+                        }
+                    }
+                } else {
+                    // Debug info about the query
+                    System.out.println("No results found for query: " + query.replace("?", "'" + fileName + "'"));
+
+                    // Show all files in the database for debugging
+                    Statement debugStmt = conn.createStatement();
+                    ResultSet debugRs = debugStmt.executeQuery("SELECT id, file_name FROM files");
+
+                    StringBuilder fileList = new StringBuilder("File not found in database. Available files:\n");
+                    boolean hasFiles = false;
+
+                    while (debugRs.next()) {
+                        hasFiles = true;
+                        fileList.append("ID: ").append(debugRs.getInt("id"))
+                                .append(", Name: ").append(debugRs.getString("file_name"))
+                                .append("\n");
+                    }
+
+                    if (!hasFiles) {
+                        fileList.append("No files in database at all!");
+                    }
+
+                    System.out.println(fileList.toString());
+                    JOptionPane.showMessageDialog(this, fileList.toString());
+                }
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this, "Database error when checking file: " + e.getMessage());
+        }
+    }
     
     private void updateGroup() {
     String selectedGroup = (String) JOptionPane.showInputDialog(
@@ -422,7 +595,7 @@ public class AdvancedChatApp extends JFrame {
 
     private void loadMessagesForUser(String username) {
         chatArea.setText("");
-        String messagesQuery = "SELECT m.content, u.username, m.created_at FROM messages m JOIN users u ON m.sender_id = u.id WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?) ORDER BY m.created_at ASC";
+        String messagesQuery = "SELECT m.content, u.username, m.created_at FROM messages m JOIN users u ON m.sender_id = u.id WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?) ORDER BY m.created_at";
         try (Connection conn = DriverManager.getConnection("jdbc:mysql://localhost:3306/chat_system", "root", "");
              PreparedStatement stmt = conn.prepareStatement(messagesQuery)) {
             int userId = UserSession.getUserId();
@@ -436,7 +609,22 @@ public class AdvancedChatApp extends JFrame {
                 String msg = rs.getString("content");
                 String sender = rs.getString("username");
                 String timestamp = rs.getString("created_at");
-                chatArea.append(sender + ": " + msg + " (" + timestamp + ")\n");
+
+                // Handle file messages specially
+                if (msg.startsWith("[FILE] ")) {
+                    String fileName = msg.substring(7); // Remove the [FILE] prefix
+
+                    // For files, add download information
+                    if (sender.equals(UserSession.getUsername())) {
+                        chatArea.append("You sent a file: " + fileName + " (" + timestamp + ")\n");
+                    } else {
+                        // Add a clickable message for received files
+                        chatArea.append(sender + " sent a file: " + fileName + " [Click to download] (" + timestamp + ")\n");
+                    }
+                } else {
+                    // Regular text message
+                    chatArea.append(sender + ": " + msg + " (" + timestamp + ")\n");
+                }
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -445,7 +633,7 @@ public class AdvancedChatApp extends JFrame {
 
     private void loadMessagesForGroup(String groupName) {
         chatArea.setText("");
-        String groupMessagesQuery = "SELECT gm.content, u.username, gm.created_at FROM group_messages gm JOIN users u ON gm.sender_id = u.id JOIN group_chats gc ON gm.group_id = gc.id WHERE gc.group_name = ? ORDER BY gm.created_at ASC";
+        String groupMessagesQuery = "SELECT gm.content, u.username, gm.created_at FROM group_messages gm JOIN users u ON gm.sender_id = u.id JOIN group_chats gc ON gm.group_id = gc.id WHERE gc.group_name = ? ORDER BY gm.created_at";
         try (Connection conn = DriverManager.getConnection("jdbc:mysql://localhost:3306/chat_system", "root", "");
              PreparedStatement stmt = conn.prepareStatement(groupMessagesQuery)) {
             stmt.setString(1, groupName);
@@ -454,7 +642,22 @@ public class AdvancedChatApp extends JFrame {
                 String msg = rs.getString("content");
                 String sender = rs.getString("username");
                 String timestamp = rs.getString("created_at");
-                chatArea.append(sender + ": " + msg + " (" + timestamp + ")\n");
+
+                // Handle file messages specially
+                if (msg.startsWith("[FILE] ")) {
+                    String fileName = msg.substring(7); // Remove the [FILE] prefix
+
+                    // For files, add download information
+                    if (sender.equals(UserSession.getUsername())) {
+                        chatArea.append("You sent a file: " + fileName + " (" + timestamp + ")\n");
+                    } else {
+                        // Add a clickable message for received files
+                        chatArea.append(sender + " sent a file: " + fileName + " [Click to download] (" + timestamp + ")\n");
+                    }
+                } else {
+                    // Regular text message
+                    chatArea.append(sender + ": " + msg + " (" + timestamp + ")\n");
+                }
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -657,19 +860,32 @@ public class AdvancedChatApp extends JFrame {
     }
 
     private void sendFile() {
+
+        if (socket == null || socket.isClosed() || out == null) {
+            JOptionPane.showMessageDialog(this, "Not connected to server. Please restart the application.");
+            return;
+        }
+        String selectedItem = combinedList.getSelectedValue();
+        if (selectedItem == null) {
+            JOptionPane.showMessageDialog(this, "Please select a friend or group to send a file to!");
+            return;
+        }
+
         JFileChooser fileChooser = new JFileChooser();
         int returnValue = fileChooser.showOpenDialog(this);
         if (returnValue == JFileChooser.APPROVE_OPTION) {
             File selectedFile = fileChooser.getSelectedFile();
             String filePath = selectedFile.getAbsolutePath();
             String fileName = selectedFile.getName();
-            
+
             // Gửi file đến server
             try {
-                out.println("FILE:" + combinedList.getSelectedValue() + ":" + fileName + ":" + filePath);
+                // Fix: Add proper message format with FILE:recipientName:fileName:filePath
+                out.println("FILE:" + selectedItem + ":" + fileName + ":" + filePath);
                 chatArea.append("You sent a file: " + fileName + "\n");
             } catch (Exception e) {
                 e.printStackTrace();
+                JOptionPane.showMessageDialog(this, "Error sending file: " + e.getMessage());
             }
         }
     }
@@ -687,7 +903,137 @@ public class AdvancedChatApp extends JFrame {
         }
     }
 
-  
+    private void copyFileWithProgress(File sourceFile, File destFile) {
+        // Create progress dialog
+        JDialog progressDialog = new JDialog(this, "Downloading File", true);
+        JProgressBar progressBar = new JProgressBar(0, 100);
+        progressBar.setStringPainted(true);
+
+        JLabel statusLabel = new JLabel("Downloading: " + sourceFile.getName());
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        panel.add(statusLabel, BorderLayout.NORTH);
+        panel.add(progressBar, BorderLayout.CENTER);
+
+        progressDialog.setContentPane(panel);
+        progressDialog.setSize(350, 120);
+        progressDialog.setLocationRelativeTo(this);
+        progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        // Start copying in a background thread
+        new Thread(() -> {
+            try (FileInputStream fis = new FileInputStream(sourceFile);
+                 FileOutputStream fos = new FileOutputStream(destFile)) {
+
+                byte[] buffer = new byte[8192];
+                long totalBytes = sourceFile.length();
+                long bytesTransferred = 0;
+                int bytesRead;
+
+                while ((bytesRead = fis.read(buffer)) != -1) {
+                    fos.write(buffer, 0, bytesRead);
+                    bytesTransferred += bytesRead;
+
+                    // Update progress
+                    final int progress = (int)((bytesTransferred * 100) / totalBytes);
+                    long finalBytesTransferred = bytesTransferred;
+                    SwingUtilities.invokeLater(() -> {
+                        progressBar.setValue(progress);
+                        progressBar.setString(progress + "%" + " (" + formatFileSize(finalBytesTransferred) +
+                                " of " + formatFileSize(totalBytes) + ")");
+                    });
+                }
+
+                // Done - close dialog and show success message
+                SwingUtilities.invokeLater(() -> {
+                    progressDialog.dispose();
+                    JOptionPane.showMessageDialog(this,
+                            "File downloaded successfully to:\n" + destFile.getAbsolutePath());
+                });
+
+            } catch (IOException e) {
+                SwingUtilities.invokeLater(() -> {
+                    progressDialog.dispose();
+                    JOptionPane.showMessageDialog(this,
+                            "Error downloading file: " + e.getMessage(),
+                            "Download Error", JOptionPane.ERROR_MESSAGE);
+                });
+                e.printStackTrace();
+            }
+        }).start();
+
+        // Show dialog (will block until disposed)
+        progressDialog.setVisible(true);
+    }
+
+    // Helper method to format file sizes in KB, MB, etc.
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        } else if (bytes < 1024 * 1024) {
+            return String.format("%.1f KB", bytes / 1024.0);
+        } else if (bytes < 1024 * 1024 * 1024) {
+            return String.format("%.1f MB", bytes / (1024.0 * 1024));
+        } else {
+            return String.format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
+        }
+    }
+
+    private void downloadFileWithLocationSelection(String fileName) {
+        System.out.println("Preparing to download file: " + fileName);
+
+        // First check if the file exists in our record
+        try (Connection conn = DriverManager.getConnection("jdbc:mysql://localhost:3306/chat_system", "root", "")) {
+            String query = "SELECT id FROM files WHERE file_name = ? ORDER BY created_at DESC LIMIT 1";
+            try (PreparedStatement stmt = conn.prepareStatement(query)) {
+                stmt.setString(1, fileName);
+                ResultSet rs = stmt.executeQuery();
+
+                if (rs.next()) {
+                    // File exists in database, let's try to find it on disk
+                    File sourceFile = new File(FILE_STORAGE_PATH, fileName);
+
+                    if (!sourceFile.exists()) {
+                        JOptionPane.showMessageDialog(this,
+                                "The source file was not found on the server.\n" +
+                                        "Path checked: " + sourceFile.getAbsolutePath());
+                        return;
+                    }
+
+                    // Create a file chooser for save location
+                    JFileChooser fileChooser = new JFileChooser();
+                    fileChooser.setDialogTitle("Save File As");
+                    fileChooser.setSelectedFile(new File(fileName));
+
+                    // Show save dialog
+                    int userSelection = fileChooser.showSaveDialog(this);
+
+                    if (userSelection == JFileChooser.APPROVE_OPTION) {
+                        File destinationFile = fileChooser.getSelectedFile();
+
+                        // If file exists, confirm overwrite
+                        if (destinationFile.exists()) {
+                            int response = JOptionPane.showConfirmDialog(this,
+                                    "A file with this name already exists. Overwrite?",
+                                    "Confirm Overwrite", JOptionPane.YES_NO_OPTION);
+
+                            if (response != JOptionPane.YES_OPTION) {
+                                return; // User canceled overwrite
+                            }
+                        }
+
+                        // Copy the file with progress indicator
+                        copyFileWithProgress(sourceFile, destinationFile);
+                    }
+                } else {
+                    JOptionPane.showMessageDialog(this, "File not found in the database records.");
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this, "Database error: " + e.getMessage());
+        }
+    }
 
     private static class GradientPanel extends JPanel {
         @Override
