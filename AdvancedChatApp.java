@@ -938,19 +938,6 @@ public class AdvancedChatApp extends JFrame {
         }).start();
     }
 
-    // Helper method to format file sizes in KB, MB, etc.
-    private String formatFileSize(long bytes) {
-        if (bytes < 1024) {
-            return bytes + " B";
-        } else if (bytes < 1024 * 1024) {
-            return String.format("%.1f KB", bytes / 1024.0);
-        } else if (bytes < 1024 * 1024 * 1024) {
-            return String.format("%.1f MB", bytes / (1024.0 * 1024));
-        } else {
-            return String.format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
-        }
-    }
-
     private void downloadFileWithLocationSelection(String fileName) {
         System.out.println("Preparing to download file: " + fileName);
 
