@@ -163,6 +163,12 @@ public class AdvancedChatApp extends JFrame {
         updateGroupButton.addActionListener(e -> updateGroup());
         toolBar.add(updateGroupButton);
 
+        JButton signOutButton = new JButton("🚪 Sign Out");
+        signOutButton.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        signOutButton.setBackground(new Color(220, 53, 69)); // Red color for sign out
+        signOutButton.setForeground(Color.WHITE);
+        signOutButton.addActionListener(e -> signOut());
+        toolBar.add(signOutButton);
 
         // Danh sách kết hợp
         combinedList = new JList<>(combinedListModel);
@@ -287,9 +293,14 @@ public class AdvancedChatApp extends JFrame {
 
         add(topPanel, BorderLayout.NORTH);
         add(splitPane, BorderLayout.CENTER);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                signOut();
+            }
+        });
         setVisible(true);
     }
-    private static final String FILE_STORAGE_PATH = "C:/Users/User/Desktop/Folder/ChatSystem_experiment/src/main/java/ChatFiles";
     private void createGroup() {
         String groupName = JOptionPane.showInputDialog(this, "Enter group name:");
         if (groupName != null && !groupName.trim().isEmpty()) {
@@ -315,119 +326,6 @@ public class AdvancedChatApp extends JFrame {
         }
     }
 
-    private String listFilesInDirectory() {
-        File dir = new File(FILE_STORAGE_PATH);
-        if (!dir.exists() || !dir.isDirectory()) {
-            return "Storage directory does not exist or is not a directory";
-        }
-
-        File[] files = dir.listFiles();
-        if (files == null || files.length == 0) {
-            return "No files in directory";
-        }
-
-        StringBuilder sb = new StringBuilder();
-        for (File file : files) {
-            sb.append(file.getName()).append(" (").append(file.length()).append(" bytes)\n");
-        }
-
-        return sb.toString();
-    }
-
-    private void checkAndDownloadFile(String fileName) {
-        System.out.println("Attempting to download file: " + fileName);
-
-        // First, trim any whitespace that might interfere with the search
-        fileName = fileName.trim();
-
-        // Show a debug message with the exact file name we're searching for
-        System.out.println("Searching for file with exact name: '" + fileName + "'");
-
-        try (Connection conn = DriverManager.getConnection("jdbc:mysql://localhost:3306/chat_system", "root", "")) {
-            // Use a more flexible query that will find partial matches if needed
-            String query = "SELECT * FROM files WHERE file_name LIKE ? ORDER BY created_at DESC LIMIT 1";
-            try (PreparedStatement stmt = conn.prepareStatement(query)) {
-                // Use LIKE with % for more flexible matching
-                stmt.setString(1, "%" + fileName + "%");
-
-                ResultSet rs = stmt.executeQuery();
-                if (rs.next()) {
-                    int fileId = rs.getInt("id");
-                    String actualFileName = rs.getString("file_name");
-                    System.out.println("Found file in database: ID=" + fileId + ", Name=" + actualFileName);
-
-                    // Try to open the file with the exact name from the database
-                    File file = new File(FILE_STORAGE_PATH, actualFileName);
-                    if (file.exists()) {
-                        try {
-                            System.out.println("Opening file: " + file.getAbsolutePath());
-                            Desktop.getDesktop().open(file);
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                            JOptionPane.showMessageDialog(this,
-                                    "Error opening file: " + e.getMessage() +
-                                            "\nPath: " + file.getAbsolutePath());
-                        }
-                    } else {
-                        // Try with just the file name without path
-                        String simpleFileName = actualFileName;
-                        if (simpleFileName.contains("\\")) {
-                            simpleFileName = simpleFileName.substring(simpleFileName.lastIndexOf("\\") + 1);
-                        } else if (simpleFileName.contains("/")) {
-                            simpleFileName = simpleFileName.substring(simpleFileName.lastIndexOf("/") + 1);
-                        }
-
-                        File simpleFile = new File(FILE_STORAGE_PATH, simpleFileName);
-
-                        if (simpleFile.exists()) {
-                            System.out.println("Opening simplified file: " + simpleFile.getAbsolutePath());
-                            Desktop.getDesktop().open(simpleFile);
-                        } else {
-                            // Show detailed error with file paths for debugging
-                            String errorMessage = "File not found on disk. Details:\n" +
-                                    "Database filename: " + actualFileName + "\n" +
-                                    "Searched path 1: " + file.getAbsolutePath() + "\n" +
-                                    "Searched path 2: " + simpleFile.getAbsolutePath() + "\n" +
-                                    "Storage directory exists: " + new File(FILE_STORAGE_PATH).exists() + "\n" +
-                                    "Files in storage directory: " + listFilesInDirectory();
-
-                            System.err.println(errorMessage);
-                            JOptionPane.showMessageDialog(this, errorMessage);
-                        }
-                    }
-                } else {
-                    // Debug info about the query
-                    System.out.println("No results found for query: " + query.replace("?", "'" + fileName + "'"));
-
-                    // Show all files in the database for debugging
-                    Statement debugStmt = conn.createStatement();
-                    ResultSet debugRs = debugStmt.executeQuery("SELECT id, file_name FROM files");
-
-                    StringBuilder fileList = new StringBuilder("File not found in database. Available files:\n");
-                    boolean hasFiles = false;
-
-                    while (debugRs.next()) {
-                        hasFiles = true;
-                        fileList.append("ID: ").append(debugRs.getInt("id"))
-                                .append(", Name: ").append(debugRs.getString("file_name"))
-                                .append("\n");
-                    }
-
-                    if (!hasFiles) {
-                        fileList.append("No files in database at all!");
-                    }
-
-                    System.out.println(fileList.toString());
-                    JOptionPane.showMessageDialog(this, fileList.toString());
-                }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-            JOptionPane.showMessageDialog(this, "Database error when checking file: " + e.getMessage());
-        }
-    }
 
     private void updateGroup() {
         String selectedGroup = (String) JOptionPane.showInputDialog(
@@ -806,34 +704,141 @@ public class AdvancedChatApp extends JFrame {
         try {
             String message;
             while ((message = in.readLine()) != null) {
-                String[] parts = message.split(":", 4);
-                if (parts.length == 4 && parts[0].equals("FILE")) {
-                    String sender = parts[1];
-                    String fileName = parts[2];
-                    String filePath = parts[3];
-                    chatArea.append(sender + " sent a file: " + fileName + " [Click to download]\n");
-                    chatArea.addMouseListener(new MouseAdapter() {
-                        @Override
-                        public void mouseClicked(MouseEvent e) {
-                            downloadFile(filePath); // Tải file khi click
-                        }
-                    });
-                } else if (parts.length == 3) {
-                    if (parts[0].equals("MESSAGE")) {
+                if (message.startsWith("FILE_BEGIN:")) {
+                    // File transfer is starting
+                    handleIncomingFile(message);
+                } else if (message.startsWith("FILE_AVAILABLE:")) {
+                    // File is available on the server
+                    String[] parts = message.split(":", 4);
+                    if (parts.length == 4) {
                         String sender = parts[1];
-                        String msg = parts[2];
-                        chatArea.append(sender + ": " + msg + "\n");
-                        chatHistory.get(sender).append(sender + ": ").append(msg).append("\n");
-                    } else if (parts[1].equals("G")) { // Group message
-                        String sender = parts[0];
-                        String msg = parts[2];
-                        chatArea.append(sender + " (Group): " + msg + "\n");
+                        String fileName = parts[2];
+                        String fileSize = parts[3];
+                        chatArea.append(sender + " sent a file: " + fileName + " [Click to download] (" + fileSize + " bytes)\n");
+                        // Store reference to file
+                        final String fileNameFinal = fileName;
+                        chatArea.addMouseListener(new MouseAdapter() {
+                            @Override
+                            public void mouseClicked(MouseEvent e) {
+                                downloadFileWithLocationSelection(fileNameFinal);
+                            }
+                        });
                     }
-                    chatArea.setCaretPosition(chatArea.getDocument().getLength()); // Di chuyển con trỏ tới cuối
+                } else if (message.startsWith("FILE:")) {
+                    // Legacy file notification (keep for backward compatibility)
+                    String[] parts = message.split(":", 4);
+                    if (parts.length == 4) {
+                        String sender = parts[1];
+                        String fileName = parts[2];
+                        String filePath = parts[3];
+                        chatArea.append(sender + " sent a file: " + fileName + " [Click to download]\n");
+                        // Store reference to file
+                        final String fileNameFinal = fileName;
+                        chatArea.addMouseListener(new MouseAdapter() {
+                            @Override
+                            public void mouseClicked(MouseEvent e) {
+                                downloadFileWithLocationSelection(fileNameFinal);
+                            }
+                        });
+                    }
+                } else {
+                    // Regular message handling
+                    String[] parts = message.split(":", 3);
+                    if (parts.length == 3) {
+                        if (parts[0].equals("MESSAGE")) {
+                            String sender = parts[1];
+                            String msg = parts[2];
+                            chatArea.append(sender + ": " + msg + "\n");
+                            if (chatHistory.containsKey(sender)) {
+                                chatHistory.get(sender).append(sender + ": ").append(msg).append("\n");
+                            }
+                        } else if (parts[1].equals("G")) { // Group message
+                            String sender = parts[0];
+                            String msg = parts[2];
+                            chatArea.append(sender + " (Group): " + msg + "\n");
+                        }
+                        chatArea.setCaretPosition(chatArea.getDocument().getLength());
+                    }
                 }
             }
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    private void handleIncomingFile(String message) {
+        try {
+            // Parse the metadata
+            String[] parts = message.split(":", 4);
+            if (parts.length == 4) {
+                String sender = parts[1];
+                String fileName = parts[2];
+                long fileSize = Long.parseLong(parts[3]);
+
+                // Create progress dialog
+                JDialog progressDialog = new JDialog(this, "Receiving File", true);
+                JProgressBar progressBar = new JProgressBar(0, 100);
+                progressBar.setStringPainted(true);
+                progressDialog.add(BorderLayout.CENTER, new JLabel("Receiving file: " + fileName));
+                progressDialog.add(BorderLayout.SOUTH, progressBar);
+                progressDialog.setSize(300, 100);
+                progressDialog.setLocationRelativeTo(this);
+
+                // Ask user where to save the file
+                JFileChooser fileChooser = new JFileChooser();
+                fileChooser.setDialogTitle("Save File As");
+                fileChooser.setSelectedFile(new File(fileName));
+
+                int userSelection = fileChooser.showSaveDialog(this);
+
+                if (userSelection == JFileChooser.APPROVE_OPTION) {
+                    File destFile = fileChooser.getSelectedFile();
+
+                    // Start receiving in a background thread
+                    new Thread(() -> {
+                        try (FileOutputStream fos = new FileOutputStream(destFile)) {
+                            InputStream socketIn = socket.getInputStream();
+                            byte[] buffer = new byte[8192];
+                            int bytesRead;
+                            long totalReceived = 0;
+
+                            // Read until we get all the data
+                            while (totalReceived < fileSize &&
+                                    (bytesRead = socketIn.read(buffer, 0,
+                                            (int)Math.min(buffer.length, fileSize - totalReceived))) != -1) {
+                                fos.write(buffer, 0, bytesRead);
+                                totalReceived += bytesRead;
+
+                                // Update progress
+                                final int progress = (int)((totalReceived * 100) / fileSize);
+                                SwingUtilities.invokeLater(() -> progressBar.setValue(progress));
+                            }
+
+                            SwingUtilities.invokeLater(() -> {
+                                progressDialog.dispose();
+                                JOptionPane.showMessageDialog(AdvancedChatApp.this,
+                                        "File received successfully: " + destFile.getAbsolutePath());
+                                chatArea.append(sender + " sent a file: " + fileName + " (Saved to " +
+                                        destFile.getAbsolutePath() + ")\n");
+                            });
+
+                        } catch (IOException e) {
+                            SwingUtilities.invokeLater(() -> {
+                                progressDialog.dispose();
+                                JOptionPane.showMessageDialog(AdvancedChatApp.this,
+                                        "Error receiving file: " + e.getMessage());
+                            });
+                            e.printStackTrace();
+                        }
+                    }).start();
+
+                    // Show progress dialog
+                    SwingUtilities.invokeLater(() -> progressDialog.setVisible(true));
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this, "Error processing file: " + e.getMessage());
         }
     }
 
@@ -860,11 +865,11 @@ public class AdvancedChatApp extends JFrame {
     }
 
     private void sendFile() {
-
         if (socket == null || socket.isClosed() || out == null) {
             JOptionPane.showMessageDialog(this, "Not connected to server. Please restart the application.");
             return;
         }
+
         String selectedItem = combinedList.getSelectedValue();
         if (selectedItem == null) {
             JOptionPane.showMessageDialog(this, "Please select a friend or group to send a file to!");
@@ -875,123 +880,247 @@ public class AdvancedChatApp extends JFrame {
         int returnValue = fileChooser.showOpenDialog(this);
         if (returnValue == JFileChooser.APPROVE_OPTION) {
             File selectedFile = fileChooser.getSelectedFile();
-            String filePath = selectedFile.getAbsolutePath();
             String fileName = selectedFile.getName();
+            long fileSize = selectedFile.length();
 
-            // Gửi file đến server
             try {
-                out.println("FILE:" + selectedItem + ":" + fileName + ":" + filePath);
-                chatArea.append("You sent a file: " + fileName + "\n");
+                // Create a dedicated socket for file transfer to avoid interfering with chat socket
+                Socket fileSocket = new Socket("localhost", 12345);
+                PrintWriter fileOut = new PrintWriter(fileSocket.getOutputStream(), true);
+
+                // Identify this connection as a file transfer socket
+                fileOut.println("FILE_TRANSFER:" + UserSession.getUserId());
+
+                // Send file metadata
+                fileOut.println("FILE_BEGIN:" + selectedItem + ":" + fileName + ":" + fileSize);
+
+                // Create a progress dialog
+                JDialog progressDialog = new JDialog(this, "Sending File", true);
+                JProgressBar progressBar = new JProgressBar(0, 100);
+                progressBar.setStringPainted(true);
+                progressDialog.add(BorderLayout.CENTER, new JLabel("Sending file: " + fileName));
+                progressDialog.add(BorderLayout.SOUTH, progressBar);
+                progressDialog.setSize(300, 100);
+                progressDialog.setLocationRelativeTo(this);
+
+                // Start sending in a background thread
+                new Thread(() -> {
+                    try (FileInputStream fis = new FileInputStream(selectedFile);
+                         OutputStream socketOut = fileSocket.getOutputStream()) {
+
+                        byte[] buffer = new byte[8192];
+                        int bytesRead;
+                        long totalSent = 0;
+
+                        while ((bytesRead = fis.read(buffer)) != -1) {
+                            socketOut.write(buffer, 0, bytesRead);
+                            totalSent += bytesRead;
+
+                            // Update progress
+                            final int progress = (int)((totalSent * 100) / fileSize);
+                            SwingUtilities.invokeLater(() -> progressBar.setValue(progress));
+
+                            // Add a small delay to prevent socket overloading
+                            Thread.sleep(1);
+                        }
+
+                        // Send a special end-of-file marker (empty buffer)
+                        socketOut.write(new byte[0]);
+                        socketOut.flush();
+
+                        // Wait for server confirmation
+                        try (BufferedReader confirmReader = new BufferedReader(new InputStreamReader(fileSocket.getInputStream()))) {
+                            String confirmation = confirmReader.readLine();
+                            if (confirmation != null && confirmation.startsWith("FILE_RECEIVED:")) {
+                                SwingUtilities.invokeLater(() -> {
+                                    progressDialog.dispose();
+                                    chatArea.append("You sent a file: " + fileName + "\n");
+                                    JOptionPane.showMessageDialog(AdvancedChatApp.this,
+                                            "File sent successfully!");
+                                });
+                            }
+                        }
+
+                        // Close file socket after transfer
+                        fileSocket.close();
+
+                    } catch (IOException | InterruptedException e) {
+                        SwingUtilities.invokeLater(() -> {
+                            progressDialog.dispose();
+                            JOptionPane.showMessageDialog(AdvancedChatApp.this,
+                                    "Error sending file: " + e.getMessage());
+                        });
+                        e.printStackTrace();
+                    }
+                }).start();
+
+                // Show progress dialog (non-modal so it doesn't block)
+                progressDialog.setModal(false);
+                SwingUtilities.invokeLater(() -> progressDialog.setVisible(true));
+
             } catch (Exception e) {
                 e.printStackTrace();
-                JOptionPane.showMessageDialog(this, "Error sending file: " + e.getMessage());
+                JOptionPane.showMessageDialog(this, "Error preparing file transfer: " + e.getMessage());
             }
         }
     }
 
-    private void downloadFile(String filePath) {
+    private void requestFileDownload(String fileName) {
         try {
-            File file = new File(filePath);
-            if (file.exists()) {
-                Desktop.getDesktop().open(file); // Mở file tự động
+            // Open a dedicated connection for file download
+            Socket downloadSocket = new Socket("localhost", 12345);
+            PrintWriter downloadOut = new PrintWriter(downloadSocket.getOutputStream(), true);
+
+            // Identify this connection as a file download
+            downloadOut.println("FILE_DOWNLOAD:" + UserSession.getUserId());
+
+            // Request specific file
+            downloadOut.println("FILE_REQUEST:" + fileName);
+
+            // Listen for response on this socket
+            BufferedReader downloadIn = new BufferedReader(new InputStreamReader(downloadSocket.getInputStream()));
+            String response = downloadIn.readLine();
+
+            if (response != null && response.startsWith("FILE_INFO:")) {
+                // Parse file info
+                String[] parts = response.split(":", 3);
+                if (parts.length == 3) {
+                    String receivedFileName = parts[1];
+                    long fileSize = Long.parseLong(parts[2]);
+
+                    // Choose save location
+                    JFileChooser fileChooser = new JFileChooser();
+                    fileChooser.setDialogTitle("Save File As");
+                    fileChooser.setSelectedFile(new File(receivedFileName));
+
+                    int userSelection = fileChooser.showSaveDialog(this);
+                    if (userSelection == JFileChooser.APPROVE_OPTION) {
+                        File destFile = fileChooser.getSelectedFile();
+
+                        // Show progress
+                        JDialog progressDialog = new JDialog(this, "Downloading File", false);
+                        JProgressBar progressBar = new JProgressBar(0, 100);
+                        progressBar.setStringPainted(true);
+                        progressDialog.add(BorderLayout.CENTER, new JLabel("Downloading: " + receivedFileName));
+                        progressDialog.add(BorderLayout.SOUTH, progressBar);
+                        progressDialog.setSize(300, 100);
+                        progressDialog.setLocationRelativeTo(this);
+                        progressDialog.setVisible(true);
+
+                        // Receive file data
+                        try (FileOutputStream fileOut = new FileOutputStream(destFile)) {
+                            InputStream socketIn = downloadSocket.getInputStream();
+
+                            byte[] buffer = new byte[8192];
+                            int bytesRead;
+                            long totalReceived = 0;
+
+                            while (totalReceived < fileSize &&
+                                    (bytesRead = socketIn.read(buffer)) > 0) {
+                                fileOut.write(buffer, 0, bytesRead);
+                                totalReceived += bytesRead;
+
+                                final int progress = (int)((totalReceived * 100) / fileSize);
+                                SwingUtilities.invokeLater(() -> progressBar.setValue(progress));
+                            }
+
+                            progressDialog.dispose();
+                            JOptionPane.showMessageDialog(this, "File downloaded successfully!");
+                        }
+                    }
+                }
             } else {
-                JOptionPane.showMessageDialog(this, "File does not exist!");
+                JOptionPane.showMessageDialog(this, "File not available for download.");
             }
+
+            downloadSocket.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this, "Error downloading file: " + e.getMessage());
+        }
+    }
+
+    private void signOut() {
+        int response = JOptionPane.showConfirmDialog(
+                this,
+                "Are you sure you want to sign out?",
+                "Confirm Sign Out",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE
+        );
+
+        if (response == JOptionPane.YES_OPTION) {
+            try {
+                // Notify the server that the user is signing out
+                if (out != null && !socket.isClosed()) {
+                    out.println("SIGN_OUT:" + UserSession.getUserId());
+                }
+
+                // Close socket connections
+                closeConnections();
+
+                // Clear the user session
+                UserSession.clearUserSession();
+
+                // Close the current window
+                this.dispose();
+
+                // Open the sign-in screen
+                SwingUtilities.invokeLater(Sign_in::new);
+
+                JOptionPane.showMessageDialog(
+                        null,
+                        "You have signed out successfully.",
+                        "Sign Out",
+                        JOptionPane.INFORMATION_MESSAGE
+                );
+
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Error during sign out: " + ex.getMessage(),
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE
+                );
+            }
+        }
+    }
+
+    private void closeConnections() {
+        try {
+            if (messageRefreshTimer != null) {
+                messageRefreshTimer.stop();
+            }
+
+            if (in != null) {
+                in.close();
+            }
+
+            if (out != null) {
+                out.close();
+            }
+
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
+
+            System.out.println("All connections closed");
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
-    
-    private void copyFile(File sourceFile, File destFile) {
-        // Create a simple message
-        JOptionPane.showMessageDialog(this,
-                "Downloading file: " + sourceFile.getName(),
-                "File Download",
-                JOptionPane.INFORMATION_MESSAGE);
 
-        // Start copying in a background thread
-        new Thread(() -> {
-            try (FileInputStream fis = new FileInputStream(sourceFile);
-                 FileOutputStream fos = new FileOutputStream(destFile)) {
-
-                byte[] buffer = new byte[8192];
-                int bytesRead;
-
-                while ((bytesRead = fis.read(buffer)) != -1) {
-                    fos.write(buffer, 0, bytesRead);
-                }
-
-                // Done - show success message
-                SwingUtilities.invokeLater(() -> {
-                    JOptionPane.showMessageDialog(this,
-                            "File downloaded successfully to:\n" + destFile.getAbsolutePath());
-                });
-
-            } catch (IOException e) {
-                SwingUtilities.invokeLater(() -> {
-                    JOptionPane.showMessageDialog(this,
-                            "Error downloading file: " + e.getMessage(),
-                            "Download Error", JOptionPane.ERROR_MESSAGE);
-                });
-                e.printStackTrace();
-            }
-        }).start();
+    @Override
+    public void dispose() {
+        closeConnections();
+        super.dispose();
     }
 
     private void downloadFileWithLocationSelection(String fileName) {
-        System.out.println("Preparing to download file: " + fileName);
-
-        // First check if the file exists in our record
-        try (Connection conn = DriverManager.getConnection("jdbc:mysql://localhost:3306/chat_system", "root", "")) {
-            String query = "SELECT id FROM files WHERE file_name = ? ORDER BY created_at DESC LIMIT 1";
-            try (PreparedStatement stmt = conn.prepareStatement(query)) {
-                stmt.setString(1, fileName);
-                ResultSet rs = stmt.executeQuery();
-
-                if (rs.next()) {
-                    // File exists in database, let's try to find it on disk
-                    File sourceFile = new File(FILE_STORAGE_PATH, fileName);
-
-                    if (!sourceFile.exists()) {
-                        JOptionPane.showMessageDialog(this,
-                                "The source file was not found on the server.\n" +
-                                        "Path checked: " + sourceFile.getAbsolutePath());
-                        return;
-                    }
-
-                    // Create a file chooser for save location
-                    JFileChooser fileChooser = new JFileChooser();
-                    fileChooser.setDialogTitle("Save File As");
-                    fileChooser.setSelectedFile(new File(fileName));
-
-                    // Show save dialog
-                    int userSelection = fileChooser.showSaveDialog(this);
-
-                    if (userSelection == JFileChooser.APPROVE_OPTION) {
-                        File destinationFile = fileChooser.getSelectedFile();
-
-                        // If file exists, confirm overwrite
-                        if (destinationFile.exists()) {
-                            int response = JOptionPane.showConfirmDialog(this,
-                                    "A file with this name already exists. Overwrite?",
-                                    "Confirm Overwrite", JOptionPane.YES_NO_OPTION);
-
-                            if (response != JOptionPane.YES_OPTION) {
-                                return; // User canceled overwrite
-                            }
-                        }
-
-                        // Copy the file with progress indicator
-                        copyFile(sourceFile, destinationFile);
-                    }
-                } else {
-                    JOptionPane.showMessageDialog(this, "File not found in the database records.");
-                }
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-            JOptionPane.showMessageDialog(this, "Database error: " + e.getMessage());
-        }
+        System.out.println("Requesting download for file: " + fileName);
+        requestFileDownload(fileName);
     }
 
     private static class GradientPanel extends JPanel {
